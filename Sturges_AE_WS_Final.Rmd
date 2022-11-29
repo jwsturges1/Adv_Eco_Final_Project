@@ -1,0 +1,445 @@
+---
+title: "Multi-year Analysis of Reef Fish and Invertebrate Assemblage Structure on High and Low Human Impact Hawiian Coral Reef Sites"
+output: html_document
+---
+# Authors: James Sturges & Tari Lopez 
+# Last Modified: 29 November 2022
+
+# README
+This script analyzes data of Hawaiian coral reef metrics from 5 different sites on the big island of Hawaii. These data were compiled by Dr. Jason Smith and Dr. Jeremy Claisse and were the result of ongoing student-lead sampling effort. James Sturges was a member of the 2019 class and 2022 sampling team.  
+```{r setup, include=FALSE,warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, warning = FALSE}
+#### Packages ----
+library(tidyverse)
+library(readxl)
+library(vegan)
+```
+
+```{r}
+##### Fish Metadata ----
+# metadata includes 3 name types (Common, Latin, and Hawaiian) 
+# also includes diet categories (Herbivore, Ominvore, and Predator) 
+# Note that not all fish have a Hawaiian name so there are NAs
+fish_meta <- read_excel("Coral_Reef_Data_2014_2018.xlsx", "Fish Metadata")
+
+```
+
+```{r}
+#### Fish Community Data ----
+#Creates fish df in wide format
+dat_fish <- read_excel("Coral_Reef_Data_2014_2018_2022_Final.xlsx", "Fish")
+
+# Removes spp. Manybar Goatfish
+# Was not analyzed prior to 2022 sampling year
+# changes col name to just Group for sampling group
+dat_fish <- dat_fish %>% 
+  select(-"Manybar Goatfish") %>% 
+  rename(student_group = Group)
+
+# change fish df to long format 
+dat_fish <- dat_fish %>% 
+  pivot_longer(cols = !Year:student_group, names_to = "com.name", values_to = "count")
+
+# joins metadata for spp name and dietary startegy
+dat_fish <- dat_fish %>% 
+  left_join(fish_meta)
+```
+```{r}
+#### Invertebrate Community Data ----
+dat_inv <- read_excel("Coral_Reef_Data_2014_2018_2022_Final.xlsx", "Invertebrates")
+# converted to long format
+dat_inv <- dat_inv %>% 
+  pivot_longer(cols = !Year:Group, names_to = "Taxa", values_to = "Abundance")
+```
+
+
+```{r}
+### Substrate Data ----
+# Only taking raw substrate percent cover in columns A-X
+dat_sub <- read_excel("Coral_Reef_Data_2014_2018_2022_Final.xlsx", "Substrate",
+                      range = cell_cols("A:X"))
+```
+
+```{r}
+# creates proportion columns for coral cover for 3 spp
+# takes live or dead % cover and uses % dead estimate to approx coverage for live and dead
+# of the X percent cover of coral spp A what percent is live and dead
+dat_sub <- dat_sub %>% 
+  mutate(Pocillopora_dead = round(Pocillopora_Live_Dead*Perc_Pocillopora_dead/100,1),
+         Pocillopora_live = round(Pocillopora_Live_Dead*(100-Perc_Pocillopora_dead)/100,1),
+         Porites_dead = round(Porites_Live_Dead*Perc_Porites_dead/100,1),
+         Porites_live = round(Porites_Live_Dead*(100-Perc_Porites_dead)/100,1),
+         Pavona_dead = round(Pavona_Live_Dead*Perc_Pavona_dead/100,1),
+         Pavona_live = round(Pavona_Live_Dead*(100-Perc_Pavona_dead)/100,1),
+         )
+
+# create table of just percentages of existing coral cover that is dead ----
+perc_dead <- dat_sub %>%
+  select(Year, Site, Replicate, Group, Perc_Pocillopora_dead, Perc_Porites_dead, Perc_Pavona_dead)
+
+# convert table to long format, remove characters so Taxa is Genus
+perc_dead <- perc_dead %>% 
+  pivot_longer(cols = !Year:Group, names_to = "Taxa", values_to = "Perc_dead") %>% 
+  mutate(Taxa = str_remove(Taxa, "Perc_"), 
+         Taxa = str_remove(Taxa, "_dead"))
+
+# remove dat_sub columns that are not a percent cover, & combined live & dead % covers ----
+dat_sub <- dat_sub %>%
+  select(!c(Perc_Pocillopora_dead, Perc_Porites_dead, Perc_Pavona_dead, Pocillopora_Live_Dead, Porites_Live_Dead, Pavona_Live_Dead))
+# to tidy (long) format
+dat_sub <- dat_sub %>% 
+  pivot_longer(cols = !Year:Group, names_to = "Substrate", values_to = "Perc_Cover")
+```
+
+
+
+
+```{r}
+#### Site Data ----
+dat_metasite <-read_excel("Coral_Reef_Data_2014_2018_2022_Final.xlsx", "Site Metadata")
+```
+
+
+```{r, warning = F}
+#### Fish Assemblage Structure ----
+
+# converts fish counts to density values based on the length of the transect
+dat_fish <- dat_fish %>% 
+  mutate(density_m2 = count/20)
+
+dat_fish_transect_avg <- dat_fish %>% 
+  group_by(Year, Site, com.name) %>% 
+  summarize(avg_density_m2 = mean(density_m2))
+
+# creates wide format for multivariate analysis
+wide_dat_fish_transect_avg <- dat_fish_transect_avg %>% 
+  pivot_wider(names_from = com.name, values_from = avg_density_m2)
+
+# join with site meta data
+wide_dat_fish_transect_avg <- wide_dat_fish_transect_avg %>% 
+  left_join(dat_metasite)
+
+# create a unique ID column that combines site and year (each point on NMDS)
+wide_dat_fish_transect_avg <- wide_dat_fish_transect_avg %>% 
+  mutate(site_year = paste(Site, Year))
+
+# Replaces underscore with a space for label
+names(wide_dat_fish_transect_avg) <- str_replace_all(names(wide_dat_fish_transect_avg), c(" " = "_"))
+
+# Creates the community data frame
+comm_dat_fish_transect_avg <- wide_dat_fish_transect_avg %>% 
+  column_to_rownames(var = "site_year") %>% 
+  select(Achilles_Tang:Zebra_Moray)
+```
+
+```{r, warning = F}
+# first NMDS plot focuses on sites across years
+# point color will show the same site
+# This is a good way to look at site and year specific trends without considering human impact
+NMDS_comm_dat_fish_transect_avg <- metaMDS(comm_dat_fish_transect_avg, 
+                            trymax = 200,
+                            distance = "bray",
+                            autotransform = F)
+scores(NMDS_comm_dat_fish_transect_avg)
+
+
+tibble_comm_dat_fish_transect_avg <- as_tibble((NMDS_comm_dat_fish_transect_avg$points), 
+                                rownames = ("site_year"))
+
+wide_dat_fish_transect_avg <- wide_dat_fish_transect_avg %>% 
+  left_join(tibble_comm_dat_fish_transect_avg)
+
+
+plot_wide_dat_fish_transect_avg_site <- ggplot(wide_dat_fish_transect_avg,
+                                              aes(MDS1, MDS2,
+                                                  fill = Site)) +
+  geom_text((aes(label = Year)),  vjust = 2, hjust = 0.3, size = 3) +
+  geom_point(shape = 23, size = 4) + 
+  ggtitle("Fish Assemblage by Site") +
+  theme_classic() +
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
+  geom_text(x = .95, y = 0.65, label = c(paste("2D Stress:" ,round(NMDS_comm_dat_fish_transect_avg$stress,2), sep = " ")), color = "black") +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) 
+
+plot_wide_dat_fish_transect_avg_site
+```
+
+```{r, warning = F}
+plot_wide_dat_fish_transect_avg_impact <- ggplot(wide_dat_fish_transect_avg,
+                                                aes(MDS1, MDS2,
+                                                    shape = Site)) +
+  geom_text((aes(label = Year)),  vjust = 2, hjust = 0.3, size = 3) +
+  geom_point(aes(colour = factor(Human_Impact)), size = 4) + 
+  ggtitle("Fish Assemblage with Human Impact") +
+  theme_classic() +
+   geom_text(x = .95, y = 0.65, label = c(paste("2D Stress:" ,round(NMDS_comm_dat_fish_transect_avg$stress,2), sep = " ")), color = "black") +
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) 
+
+
+plot_wide_dat_fish_transect_avg_impact
+
+
+fish_spp_fit <- envfit(NMDS_comm_dat_fish_transect_avg, wide_dat_fish_transect_avg, permutations = 999)
+site_scores <- wide_dat_fish_transect_avg %>%
+  select(Year, Site, site_year, Human_Impact, MDS1, MDS2) %>% 
+  column_to_rownames(var = "site_year")
+spp_scores <- as.data.frame(scores(fish_spp_fit, display = "vectors"))
+spp_scores <- cbind(spp_scores, Species = rownames(spp_scores))
+spp_scores <- cbind(spp_scores, pval = fish_spp_fit$vectors$pvals)
+
+sig_spp_scores <- subset(spp_scores, pval <= 0.01)
+sig_spp_scores <- sig_spp_scores %>% 
+  filter(!Species %in% "MDS1") %>% 
+  filter(!Species %in% "MDS2") %>% 
+  filter(!Species %in% "Year")
+plot_NMDS_comm_fish_wide_transect_avg <- ggplot(site_scores, aes(x = MDS1, y = MDS2)) +
+  geom_point(aes(MDS1, MDS2, colour = factor(Human_Impact),
+                 shape = factor(Site)), size = 4) +
+  geom_text((aes(label = Year)),  vjust = 2, hjust = .3, size = 3) +
+  labs(colour = "Human Impact", shape = "Site") +
+  theme(legend.position = "right", legend.text = element_text(size = 12), legend.title = element_text(size = 12), axis.text = element_text(size = 10)) +
+  ggtitle("Fish Assemblage with Human Impact") +
+  theme_classic() +
+   geom_text(x = .95, y = 0.65, label = c(paste("2D Stress:" ,round(NMDS_comm_dat_fish_transect_avg$stress,2), sep = " ")), color = "black") +
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) 
+plot_NMDS_comm_fish_wide_transect_avg
+
+
+
+plot_fish_spp_vectors <- plot_NMDS_comm_fish_wide_transect_avg +
+  geom_segment(data = sig_spp_scores, aes(x = 0, xend = NMDS1, y = 0, yend = NMDS2),
+               arrow = arrow(length = unit(0.1, "cm")),
+               colour = "grey10", lwd = 0.3) +
+  ggrepel::geom_text_repel(data = sig_spp_scores, 
+                           aes(x = NMDS1, y = NMDS2, label = Species), direction = "both", segment.size = 0.1)
+
+plot_fish_spp_vectors
+```
+
+
+```{r, warning = F}
+#### Invert Community Structure  ----
+
+dat_inv <- dat_inv %>% 
+  mutate(density_m2 = Abundance/20)
+
+dat_inv_transect_avg <- dat_inv %>% 
+  group_by(Year, Site, Taxa) %>% 
+  summarize(avg_density_m2 = mean(density_m2))
+
+
+wide_dat_inv_transect_avg <- dat_inv_transect_avg %>% 
+  pivot_wider(names_from = Taxa, values_from = avg_density_m2)
+
+wide_dat_inv_transect_avg <- wide_dat_inv_transect_avg %>% 
+  left_join(dat_metasite)
+
+wide_dat_inv_transect_avg <- wide_dat_inv_transect_avg %>% 
+  mutate(site_year = paste(Site, Year))
+
+names(wide_dat_inv_transect_avg) <- str_replace_all(names(wide_dat_inv_transect_avg), c(" " = "_"))
+
+comm_dat_inv_transect_avg <- wide_dat_inv_transect_avg %>% 
+  column_to_rownames(var = "site_year") %>% 
+  select(Banded_urchin:Top_Snail)
+
+
+
+NMDS_comm_dat_inv_transect_avg <- metaMDS(comm_dat_inv_transect_avg, 
+                                           trymax = 200,
+                                           distance = "bray",
+                                           autotransform = F)
+
+tibble_comm_dat_inv_transect_avg <- as_tibble((NMDS_comm_dat_inv_transect_avg$points), 
+                                               rownames = ("site_year"))
+
+wide_dat_inv_transect_avg <- wide_dat_inv_transect_avg %>% 
+  left_join(tibble_comm_dat_inv_transect_avg)
+
+
+plot_wide_dat_inv_transect_avg_site <- ggplot(wide_dat_inv_transect_avg,
+                                          aes(MDS1, MDS2,
+                                              fill = Site)) +
+  geom_text((aes(label = Year)),  vjust = 2, hjust = .2, size = 3) +
+  geom_point(shape = 23, size = 4) + 
+  ggtitle("Invertebrate Assemblage by Site") +
+  theme_classic() +
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) 
+
+plot_wide_dat_inv_transect_avg_impact <- ggplot(wide_dat_inv_transect_avg,
+                                              aes(MDS1, MDS2,
+                                                  shape = Site)) +
+  geom_text((aes(label = Year)),  vjust = 2, hjust = .2, size = 3) +
+  geom_point(aes(colour = factor(Human_Impact)), size = 4) + 
+  ggtitle("Invertebrate Assemblage with Human Impact") +
+  theme_classic() +
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) 
+
+plot_wide_dat_inv_transect_avg_site
+plot_wide_dat_inv_transect_avg_impact
+
+inv_spp_fit <- envfit(NMDS_comm_dat_inv_transect_avg, wide_dat_inv_transect_avg, permutations = 999)
+site_scores <- wide_dat_inv_transect_avg %>%
+  select(Year, Site, site_year, Human_Impact, MDS1, MDS2) %>% 
+  column_to_rownames(var = "site_year")
+spp_scores <- as.data.frame(scores(inv_spp_fit, display = "vectors"))
+spp_scores <- cbind(spp_scores, Species = rownames(spp_scores))
+spp_scores <- cbind(spp_scores, pval = inv_spp_fit$vectors$pvals)
+
+sig_spp_scores <- subset(spp_scores, pval <= 0.05)
+sig_spp_scores <- sig_spp_scores %>% 
+  filter(!Species %in% "MDS1") %>% 
+  filter(!Species %in% "MDS2") %>% 
+  filter(!Species %in% "Year")
+plot_NMDS_comm_inv_wide_transect_avg <- ggplot(site_scores, aes(x = MDS1, y = MDS2)) +
+  geom_point(aes(MDS1, MDS2, colour = factor(Human_Impact),
+                 shape = factor(Site)), size = 4) +
+  geom_text((aes(label = Year)),  vjust = 2, hjust = .2, size = 3) +
+  labs(colour = "Human Impact", shape = "Site") +
+  theme(legend.position = "right", legend.text = element_text(size = 12), legend.title = element_text(size = 12), axis.text = element_text(size = 10))
+plot_NMDS_comm_inv_wide_transect_avg
+
+
+
+plot_inv_spp_vectors <- plot_NMDS_comm_inv_wide_transect_avg +
+  geom_segment(data = sig_spp_scores, aes(x = 0, xend = NMDS1, y = 0, yend = NMDS2),
+               arrow = arrow(length = unit(0.1, "cm")),
+               colour = "grey10", lwd = 0.3) +
+  ggrepel::geom_text_repel(data = sig_spp_scores, 
+                           aes(x = NMDS1, y = NMDS2, label = Species), direction = "both", segment.size = 0.1)
+
+plot_inv_spp_vectors
+```
+
+
+```{r, warning = F}
+##### Combined Assemblage Structure ----
+wide_dat_fish_transect_avg <- dat_fish_transect_avg %>% 
+  pivot_wider(names_from = com.name, values_from = avg_density_m2)
+
+wide_dat_fish_transect_avg <- wide_dat_fish_transect_avg %>% 
+  mutate(site_year = paste(Site, Year))
+
+wide_dat_inv_transect_avg <- dat_inv_transect_avg %>% 
+  pivot_wider(names_from = Taxa, values_from = avg_density_m2)
+
+
+wide_dat_inv_transect_avg <- wide_dat_inv_transect_avg %>% 
+  mutate(site_year = paste(Site, Year))
+
+combined_wide_transect_avg <- wide_dat_fish_transect_avg %>% 
+  right_join(wide_dat_inv_transect_avg)
+
+combined_wide_transect_avg <- combined_wide_transect_avg %>% 
+  left_join(dat_metasite)
+
+names(combined_wide_transect_avg) <- str_replace_all(names(combined_wide_transect_avg), c(" " = "_"))
+
+comm_combined_wide_transect_avg <- combined_wide_transect_avg %>% 
+  column_to_rownames(var = "site_year") %>% 
+  select(Achilles_Tang:Top_Snail)
+
+
+
+NMDS_comm_combined_wide_transect_avg <- metaMDS(comm_combined_wide_transect_avg, 
+                                          trymax = 200,
+                                          distance = "bray",
+                                          autotransform = F)
+
+tibble_comm_combined_wide_transect_avg <- as_tibble((NMDS_comm_combined_wide_transect_avg$points), 
+                                              rownames = ("site_year"))
+
+combined_wide_transect_avg <- combined_wide_transect_avg %>% 
+  left_join(tibble_comm_combined_wide_transect_avg)
+
+
+plot_combined_wide_transect_avg_site <- ggplot(combined_wide_transect_avg,
+                                               aes(MDS1, MDS2,
+                                                   fill = Site)) +
+  geom_text((aes(label = Year)),  vjust = 2, hjust = .2, size = 3) +
+  geom_point(shape = 23, size = 4) + 
+  ggtitle("Combined Assemblage by Site") +
+  theme_classic() +
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) 
+
+plot_combined_wide_transect_avg_impact <- ggplot(combined_wide_transect_avg,
+                                                 aes(MDS1, MDS2,
+                                                     shape = Site)) +
+  geom_text((aes(label = Year)),  vjust = 2, hjust = .2, size = 3) +
+  geom_point(aes(colour = factor(Human_Impact)), size = 4) + 
+  ggtitle("Combined Assemblage with Human Impact") +
+  theme_classic() +
+  theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_blank()) 
+
+
+plot_combined_wide_transect_avg_site
+
+plot_combined_wide_transect_avg_impact
+
+
+
+combined_spp_fit <- envfit(NMDS_comm_combined_wide_transect_avg, combined_wide_transect_avg, permutations = 999)
+site_scores <- combined_wide_transect_avg %>%
+  select(Year, Site, site_year, Human_Impact, MDS1, MDS2) %>% 
+  column_to_rownames(var = "site_year")
+spp_scores <- as.data.frame(scores(combined_spp_fit, display = "vectors"))
+spp_scores <- cbind(spp_scores, Species = rownames(spp_scores))
+spp_scores <- cbind(spp_scores, pval = combined_spp_fit$vectors$pvals)
+
+sig_spp_scores <- subset(spp_scores, pval <= 0.05)
+sig_spp_scores <- sig_spp_scores %>% 
+  filter(!Species %in% "MDS1") %>% 
+  filter(!Species %in% "MDS2") %>% 
+  filter(!Species %in% "Year")
+plot_NMDS_comm_combined_wide_transect_avg <- ggplot(site_scores, aes(x = MDS1, y = MDS2)) +
+  geom_point(aes(MDS1, MDS2, colour = factor(Human_Impact),
+                 shape = factor(Site)), size = 4) +
+  geom_text((aes(label = Year)),  vjust = 2, hjust = .2, size = 3) +
+  labs(colour = "Human Impact", shape = "Site") +
+  theme(legend.position = "right", legend.text = element_text(size = 12), legend.title = element_text(size = 12), axis.text = element_text(size = 10))
+plot_NMDS_comm_combined_wide_transect_avg
+
+
+#This adds a species vector to our HT and Mod_side NMDS plot
+
+plot_combined_spp_vectors <- plot_NMDS_comm_combined_wide_transect_avg +
+  geom_segment(data = sig_spp_scores, aes(x = 0, xend = NMDS1, y = 0, yend = NMDS2),
+               arrow = arrow(length = unit(0.1, "cm")),
+               colour = "grey10", lwd = 0.3) +
+  ggrepel::geom_text_repel(data = sig_spp_scores, 
+                           aes(x = NMDS1, y = NMDS2, label = Species), direction = "both", segment.size = 0.1)
+
+plot_combined_spp_vectors
+
+
+
+
+plot_NMDS_comm_combined_wide_transect_avg_polygon_site <- plot_NMDS_comm_combined_wide_transect_avg +
+  geom_polygon(data = combined_wide_transect_avg,
+  aes(x = MDS1,
+  y = MDS2, fill = Site,
+  group = Site),
+  alpha = 0.3) 
+
+
+plot_NMDS_comm_combined_wide_transect_avg_polygon_site
+```
+
+
+
