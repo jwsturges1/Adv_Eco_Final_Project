@@ -1,5 +1,5 @@
 ---
-title: "Multi-year Analysis of Reef Fish and Invertebrate Assemblage Structure on High and Low Human Impact Hawiian Coral Reef Sites"
+title: "Analysis of Reef Fish and Invertebrate Assemblage Structure on High and Low Human Impact Hawiian Coral Reef Sites"
 output: html_document
 ---
 # Authors: James Sturges & Tari Lopez 
@@ -13,13 +13,23 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ```{r, warning = FALSE}
 #### Packages ----
+
 library(tidyverse)
 library(readxl)
 library(vegan)
 ```
 
 ```{r}
+#### Site Metadata ----
+# 5 sites (3 high impact 2 low impact)
+# All sites are located on the dry side of the Big Island
+# Kahaluu is the only site with a high and low impact site adjacent to each other
+dat_metasite <-read_excel("Coral_Reef_Data_2014_2018_2022_Final.xlsx", "Site Metadata")
+```
+
+```{r}
 ##### Fish Metadata ----
+
 # metadata includes 3 name types (Common, Latin, and Hawaiian) 
 # also includes diet categories (Herbivore, Ominvore, and Predator) 
 # Note that not all fish have a Hawaiian name so there are NAs
@@ -29,6 +39,7 @@ fish_meta <- read_excel("Coral_Reef_Data_2014_2018.xlsx", "Fish Metadata")
 
 ```{r}
 #### Fish Community Data ----
+
 #Creates fish df in wide format
 dat_fish <- read_excel("Coral_Reef_Data_2014_2018_2022_Final.xlsx", "Fish")
 
@@ -47,9 +58,13 @@ dat_fish <- dat_fish %>%
 dat_fish <- dat_fish %>% 
   left_join(fish_meta)
 ```
+
 ```{r}
 #### Invertebrate Community Data ----
+
+# creates a df for all invertebrates observed on swath transects
 dat_inv <- read_excel("Coral_Reef_Data_2014_2018_2022_Final.xlsx", "Invertebrates")
+
 # converted to long format
 dat_inv <- dat_inv %>% 
   pivot_longer(cols = !Year:Group, names_to = "Taxa", values_to = "Abundance")
@@ -57,16 +72,18 @@ dat_inv <- dat_inv %>%
 
 
 ```{r}
-### Substrate Data ----
-# Only taking raw substrate percent cover in columns A-X
+### Substrate and Coral Coverage Data ----
+
+# creates a dataframe for substrate 
+# note that coral coverage is a combination of live and dead
+# we estimate the percentage of dead coral of the total coverage
 dat_sub <- read_excel("Coral_Reef_Data_2014_2018_2022_Final.xlsx", "Substrate",
                       range = cell_cols("A:X"))
 ```
 
 ```{r}
-# creates proportion columns for coral cover for 3 spp
-# takes live or dead % cover and uses % dead estimate to approx coverage for live and dead
-# of the X percent cover of coral spp A what percent is live and dead
+# Here we use percent dead estimates to change total coral coverage into 2 categories live and dead
+# Doing this estimation in the field is time intensive so we only estimate percent dead
 dat_sub <- dat_sub %>% 
   mutate(Pocillopora_dead = round(Pocillopora_Live_Dead*Perc_Pocillopora_dead/100,1),
          Pocillopora_live = round(Pocillopora_Live_Dead*(100-Perc_Pocillopora_dead)/100,1),
@@ -75,8 +92,11 @@ dat_sub <- dat_sub %>%
          Pavona_dead = round(Pavona_Live_Dead*Perc_Pavona_dead/100,1),
          Pavona_live = round(Pavona_Live_Dead*(100-Perc_Pavona_dead)/100,1),
          )
+```
 
-# create table of just percentages of existing coral cover that is dead ----
+```{r}
+# We want to look at how much of the coral reef was dead at the time of each transect
+# create table of just percentages of existing coral cover that is dead 
 perc_dead <- dat_sub %>%
   select(Year, Site, Replicate, Group, Perc_Pocillopora_dead, Perc_Porites_dead, Perc_Pavona_dead)
 
@@ -86,27 +106,23 @@ perc_dead <- perc_dead %>%
   mutate(Taxa = str_remove(Taxa, "Perc_"), 
          Taxa = str_remove(Taxa, "_dead"))
 
-# remove dat_sub columns that are not a percent cover, & combined live & dead % covers ----
+# remove dat_sub columns that are not a percent cover, & combined live & dead % covers 
 dat_sub <- dat_sub %>%
   select(!c(Perc_Pocillopora_dead, Perc_Porites_dead, Perc_Pavona_dead, Pocillopora_Live_Dead, Porites_Live_Dead, Pavona_Live_Dead))
+
 # to tidy (long) format
 dat_sub <- dat_sub %>% 
   pivot_longer(cols = !Year:Group, names_to = "Substrate", values_to = "Perc_Cover")
 ```
 
-
-
-
-```{r}
-#### Site Data ----
-dat_metasite <-read_excel("Coral_Reef_Data_2014_2018_2022_Final.xlsx", "Site Metadata")
-```
-
-
 ```{r, warning = F}
 #### Fish Assemblage Structure ----
 
+# This code chunk creates the community dataframe in wide format with site and year as the unique ID.
+
 # converts fish counts to density values based on the length of the transect
+# Note that transects were 10 meters long but 2 meters wide
+# We did not limit the vertical height of the transect just the area so densities are reported in fish/m2
 dat_fish <- dat_fish %>% 
   mutate(density_m2 = count/20)
 
@@ -136,7 +152,9 @@ comm_dat_fish_transect_avg <- wide_dat_fish_transect_avg %>%
 ```
 
 ```{r, warning = F}
-# first NMDS plot focuses on sites across years
+#### 1st NMDS plot ----
+
+# focuses on looking at the sites 
 # point color will show the same site
 # This is a good way to look at site and year specific trends without considering human impact
 NMDS_comm_dat_fish_transect_avg <- metaMDS(comm_dat_fish_transect_avg, 
@@ -156,14 +174,17 @@ wide_dat_fish_transect_avg <- wide_dat_fish_transect_avg %>%
 plot_wide_dat_fish_transect_avg_site <- ggplot(wide_dat_fish_transect_avg,
                                               aes(MDS1, MDS2,
                                                   fill = Site)) +
-  geom_text((aes(label = Year)),  vjust = 2, hjust = 0.3, size = 3) +
-  geom_point(shape = 23, size = 4) + 
+  geom_text((aes(label = Year)),  vjust = -1.2, hjust = .5, size = 3) +
+  geom_point(aes(shape = Site), size = 4) + 
   ggtitle("Fish Assemblage by Site") +
   theme_classic() +
   theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
-  geom_text(x = .95, y = 0.65, label = c(paste("2D Stress:" ,round(NMDS_comm_dat_fish_transect_avg$stress,2), sep = " ")), color = "black") +
+  geom_text(x = .98, y = 0.67, label = c(paste("2D Stress:" ,round(NMDS_comm_dat_fish_transect_avg$stress,2), sep = " ")), color = "black") +
+  scale_shape_manual(values = c(21, 24, 25, 22, 23)) +
   theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank()) 
+        axis.title.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank()) 
 
 plot_wide_dat_fish_transect_avg_site
 ```
@@ -172,19 +193,25 @@ plot_wide_dat_fish_transect_avg_site
 plot_wide_dat_fish_transect_avg_impact <- ggplot(wide_dat_fish_transect_avg,
                                                 aes(MDS1, MDS2,
                                                     shape = Site)) +
-  geom_text((aes(label = Year)),  vjust = 2, hjust = 0.3, size = 3) +
-  geom_point(aes(colour = factor(Human_Impact)), size = 4) + 
+  geom_text((aes(label = Year)),  vjust = -1.2, hjust = 0.5, size = 3) +
+  geom_point(aes(fill = Human_Impact, shape = Site), size = 4) + 
+  scale_shape_manual(values = c(21, 24, 25, 22, 23)) +
+  scale_color_manual(values = c("firebrick4", "dodgerblue2")) +
   ggtitle("Fish Assemblage with Human Impact") +
   theme_classic() +
+    theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
    geom_text(x = .95, y = 0.65, label = c(paste("2D Stress:" ,round(NMDS_comm_dat_fish_transect_avg$stress,2), sep = " ")), color = "black") +
   theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
   theme(axis.title.x = element_blank(),
-        axis.title.y = element_blank()) 
+        axis.title.y = element_blank(),
+        axis.ticks = element_blank(),
+        axis.text = element_blank()) 
 
 
 plot_wide_dat_fish_transect_avg_impact
+```
 
-
+```{r}
 fish_spp_fit <- envfit(NMDS_comm_dat_fish_transect_avg, wide_dat_fish_transect_avg, permutations = 999)
 site_scores <- wide_dat_fish_transect_avg %>%
   select(Year, Site, site_year, Human_Impact, MDS1, MDS2) %>% 
