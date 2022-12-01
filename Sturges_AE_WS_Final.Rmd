@@ -1,9 +1,9 @@
 ---
-title: "Analysis of Reef Fish and Invertebrate Assemblage Structure on High and Low Human Impact Hawiian Coral Reef Sites"
+title: "Analysis of Reef Fish and Invertebrate Assemblage Structure on High and Low Human Impact Hawiian Coral Reefs"
 output: html_document
 ---
 # Authors: James Sturges & Tari Lopez 
-# Last Modified: 29 November 2022
+# Last Modified: 1 December 2022
 
 # README
 This script analyzes data of Hawaiian coral reef metrics from 5 different sites on the big island of Hawaii. These data were compiled by Dr. Jason Smith and Dr. Jeremy Claisse and were the result of ongoing student-lead sampling effort. James Sturges was a member of the 2019 class and 2022 sampling team.  
@@ -45,7 +45,7 @@ dat_fish <- read_excel("Coral_Reef_Data_2014_2018_2022_Final.xlsx", "Fish")
 
 # Removes spp. Manybar Goatfish
 # Was not analyzed prior to 2022 sampling year
-# changes col name to just Group for sampling group
+# changes col name to just Group for student lead sampling groups
 dat_fish <- dat_fish %>% 
   select(-"Manybar Goatfish") %>% 
   rename(student_group = Group)
@@ -74,16 +74,15 @@ dat_inv <- dat_inv %>%
 ```{r}
 ### Substrate and Coral Coverage Data ----
 
-# creates a dataframe for substrate 
-# note that coral coverage is a combination of live and dead
-# we estimate the percentage of dead coral of the total coverage
+# creates a dataframe for substrate percent cover estimates from visual surveys
+# note that coral coverage values are reported as total sum of live and dead coral spp
+# We estimated individual cover for live and dead coral by multiplying percent dead estimates
 dat_sub <- read_excel("Coral_Reef_Data_2014_2018_2022_Final.xlsx", "Substrate",
                       range = cell_cols("A:X"))
 ```
 
 ```{r}
-# Here we use percent dead estimates to change total coral coverage into 2 categories live and dead
-# Doing this estimation in the field is time intensive so we only estimate percent dead
+# We estimated percent cover of live and dead coral for each spp
 dat_sub <- dat_sub %>% 
   mutate(Pocillopora_dead = round(Pocillopora_Live_Dead*Perc_Pocillopora_dead/100,1),
          Pocillopora_live = round(Pocillopora_Live_Dead*(100-Perc_Pocillopora_dead)/100,1),
@@ -152,13 +151,14 @@ comm_dat_fish_transect_avg <- wide_dat_fish_transect_avg %>%
 ```
 
 ```{r, warning = F}
-#### 1st NMDS plot ----
+#### 1st NMDS object created ----
 
-# focuses on looking at the sites 
+# Used for site and year specific patterns
+# Would expect sites to be most similar to themselves across years
 # point color will show the same site
 # This is a good way to look at site and year specific trends without considering human impact
 NMDS_comm_dat_fish_transect_avg <- metaMDS(comm_dat_fish_transect_avg, 
-                            trymax = 200,
+                            trymax = 999,
                             distance = "bray",
                             autotransform = F)
 scores(NMDS_comm_dat_fish_transect_avg)
@@ -174,12 +174,12 @@ wide_dat_fish_transect_avg <- wide_dat_fish_transect_avg %>%
 plot_wide_dat_fish_transect_avg_site <- ggplot(wide_dat_fish_transect_avg,
                                               aes(MDS1, MDS2,
                                                   fill = Site)) +
-  geom_text((aes(label = Year)),  vjust = -1.2, hjust = .5, size = 3) +
+  geom_text((aes(label = Year)),  vjust = -1.1, hjust = .5, size = 3) +
   geom_point(aes(shape = Site), size = 4) + 
   ggtitle("Fish Assemblage by Site") +
   theme_classic() +
   theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
-  geom_text(x = .98, y = 0.67, label = c(paste("2D Stress:" ,round(NMDS_comm_dat_fish_transect_avg$stress,2), sep = " ")), color = "black") +
+  geom_text(x = .86, y = 0.8, label = c(paste("2D Stress:" ,round(NMDS_comm_dat_fish_transect_avg$stress,2), sep = " ")), color = "black") +
   scale_shape_manual(values = c(21, 24, 25, 22, 23)) +
   theme(axis.title.x = element_blank(),
         axis.title.y = element_blank(),
@@ -190,18 +190,22 @@ plot_wide_dat_fish_transect_avg_site
 ```
 
 ```{r, warning = F}
+#### NMDS object 1 plot ----
 plot_wide_dat_fish_transect_avg_impact <- ggplot(wide_dat_fish_transect_avg,
                                                 aes(MDS1, MDS2,
                                                     shape = Site)) +
-  geom_text((aes(label = Year)),  vjust = -1.2, hjust = 0.5, size = 3) +
-  geom_point(aes(fill = Human_Impact, shape = Site), size = 4) + 
+  geom_text((aes(label = Year)),  vjust = -1.0, hjust = 0.5, size = 2.5) +
+  geom_point(aes(fill = Human_Impact, shape = Site), size = 3) + 
   scale_shape_manual(values = c(21, 24, 25, 22, 23)) +
   scale_color_manual(values = c("firebrick4", "dodgerblue2")) +
   ggtitle("Fish Assemblage with Human Impact") +
   theme_classic() +
     theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
-   geom_text(x = .95, y = 0.65, label = c(paste("2D Stress:" ,round(NMDS_comm_dat_fish_transect_avg$stress,2), sep = " ")), color = "black") +
+   geom_text(x = .86, y = 0.8, label = c(paste("2D Stress:" ,round(NMDS_comm_dat_fish_transect_avg$stress,2), sep = " ")), color = "black") +
   theme(panel.background = element_rect(fill = NA, colour = "black", size = 1, linetype = "solid")) +
+  # guides(colour = guide_legend(c("firebrick4", "dodgerblue2")))+
+   guides(fill=guide_legend(title="Human Impact", fill = c("firebrick4", "dodgerblue2"))) +
+  # guides(colour=guide_colourbar(order = 5)) +
   theme(axis.title.x = element_blank(),
         axis.title.y = element_blank(),
         axis.ticks = element_blank(),
