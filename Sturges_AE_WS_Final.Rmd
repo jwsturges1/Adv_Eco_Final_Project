@@ -1,6 +1,9 @@
 ---
-title: "Analysis of Reef Fish and Invertebrate Assemblage Structure on High and Low Human Impact Hawiian Coral Reefs"
-output: html_document
+title: Analysis of Reef Fish and Invertebrate Assemblage Structure on High and Low
+  Human Impact Hawiian Coral Reefs
+output:
+  pdf_document: default
+  html_document: default
 ---
 # Authors: James Sturges & Tari Lopez 
 # Last Modified: 2 December 2022
